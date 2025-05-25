@@ -1,0 +1,3 @@
+[submodule "can-monitor.cydsn/can-controller"]
+	path = can-monitor.cydsn/can-controller
+	url = git@github.com:naokiiwakami/can-controller.git
