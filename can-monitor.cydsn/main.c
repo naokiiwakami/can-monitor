@@ -12,11 +12,8 @@
 #include <project.h>
 #include <string.h>
 
-#include "mcp2515.h"
-
-
-void mcp2515_read_into_queue(uint8_t address, uint8_t length);
-void mcp2515_read_rxb0_into_queue();
+#include "can-controller/api.h"
+#include "can-controller/device/mcp2515.h"
 
 int32_t my_device_id = 100;
 
@@ -36,25 +33,25 @@ uint8 led = 1;
 CY_ISR(ISR_USER_SW)
 {
     Pin_LED_B_Write(0);
-    init_can();
+    can_init();
     Pin_LED_B_Write(1);    
 }
 
 #define QUEUE_SIZE 128
 volatile uint8_t q_first = 0;
 volatile uint8_t q_last = 0;
-volatile uint8_t queue_array[QUEUE_SIZE];
+can_message_t *queue_array[QUEUE_SIZE];
 
-inline void queue_add(uint8_t val)
+inline void queue_add(can_message_t *message)
 {
-    queue_array[q_last++] = val;
+    queue_array[q_last++] = message;
     if (q_last == QUEUE_SIZE)
         q_last = 0;
 }
 
-inline uint8_t queue_remove()
+inline can_message_t *queue_remove()
 {
-    uint8_t val = queue_array[q_first++];
+    can_message_t *val = queue_array[q_first++];
     if (q_first == QUEUE_SIZE)
         q_first = 0;
     return val;
@@ -66,12 +63,6 @@ inline uint8_t queue_remove()
 #define RXBnSIDL_IDE_BIT 3
 
 #define RXBnDLC_RFR_BIT 6
-
-CY_ISR(ISR_RX0BF)
-{
-    mcp2515_read_into_queue(RXB0SIDH, 13);
-    mcp2515_bit_modify(CANINTF, (1 << CANINTF_RX0IF_BIT), 0);
-}
 
 uint8_t pnt = 0;
 char command[128];
@@ -92,10 +83,10 @@ int main()
 
     /* Place your initialization/startup code here (e.g. MyInst_Start()) */
     
-    SPIM_CAN_Start();
+    // SPIM_CAN_Start();
     SERIAL_Start();
     
-    init_can();
+    can_init();
     
     // for (;;) {}
     
@@ -110,15 +101,7 @@ int main()
         // test writing data to TxB0 data registers
         for (i = 0; i < 8; ++i)
             buf[7-i] = i + 1;
-        mcp2515_write_array(TXB0D0, buf, 8);
-        set_can_id_std(TXB0SIDH, 0x555);
-        mcp2515_write(TXB0DLC, 8);
-        mcp2515_write(TXB0EID8, 0);
-        mcp2515_write(TXB0EID0, 0);
     
-        mcp2515_message_request_to_send_txb0();
-        // done test
-
         for (addr = 0; addr < 0x80; addr += 0x10) {
             mcp2515_read(addr, buf, 16);
             // put_hex(addr);
@@ -137,9 +120,6 @@ int main()
     isr_1_ClearPending();
     isr_1_StartEx(ISR_USER_SW);
     
-    isr_RX0BF_ClearPending();
-    isr_RX0BF_StartEx(ISR_RX0BF);
-    
     for(;;)
     {
         uint32 ch = SERIAL_UartGetChar();
@@ -156,95 +136,38 @@ int main()
             }
         }
         if (!queue_empty()) {
-            //               7     6     5     4     3     2     1     0
-            // RXBnSIDH: SID10  SID9  SID8  SID7  SID6  SID5  SID4  SID3
-            // RXBnSIDL:  SID2  SID1  SID0   SRR   IDE   -   EID17 EID16
-            uint8_t value = queue_remove(); // RXB0SIDH
-            uint16_t sid = value;
-            sid <<= 3;
-            value = queue_remove(); // RXB0SIDL
-            sid |= value >> 5;
-            uint8_t extended = value & (1 << 3);
-            uint8_t is_remote = value & (1 << 4);
-            uint32_t eid = value & 0x3;
-            eid <<= 8;
-            //               7     6     5     4     3     2     1     0
-            // RXBnEID8: EID15 EID14 EID13 EID12 EID11 EID10  EID9  EID8
-            // RXBnEID0:  EID7  EID6  EID5  EID4  EID3  EID2  EID1  EID0
-            value = queue_remove(); // RXB0EID8
-            eid |= value;
-            eid <<= 8;
-            value = queue_remove(); // RXB0EID0
-            eid |= value;
-            eid |= sid << 18;
-            //               7     6     5     4     3     2     1     0
-            // RXBnDLC:    -     RTR   RB1   RB0  DLC3  DLC2  DLC1  DLC0
-            value = queue_remove(); // RXB0DLC
-            if (extended)
-                is_remote = value & (1 << 6);
-            uint8_t len = value & 0x0f;    
-            
-            if (!extended) {
+            can_message_t *message = queue_remove();
+            if (!message->is_extended) {
                 SERIAL_UartPutString("std[");
-                put_hex(sid >> 8);
-                put_hex(sid);
+                put_hex(message->id >> 8);
+                put_hex(message->id);
             }
             else {
                 SERIAL_UartPutString("ext[");
-                put_hex(eid >> 24);
-                put_hex(eid >> 16);
-                put_hex(eid >> 8);
-                put_hex(eid);
+                put_hex(message->id >> 24);
+                put_hex(message->id >> 16);
+                put_hex(message->id >> 8);
+                put_hex(message->id);
             }
-            if (is_remote) {
+            if (message->is_remote) {
                 SERIAL_UartPutString(" ]: REMOTE\r\n");                
             }
             else {
                 SERIAL_UartPutString(" ]:");                                
                 int i;
-                for (i = 0; i < 8; ++i) {
-                    value = queue_remove();
-                    if (i < len)
-                        put_hex(value);
+                for (i = 0; i < message->data_length; ++i) {
+                    put_hex(message->data[i]);
                 }
                 SERIAL_UartPutString("\r\n");                                
             }
+            can_free_message(message);
         }
     }
 }
 
-void mcp2515_read_into_queue(uint8_t address, uint8_t length)
+void can_consume_rx_message(can_message_t *message)
 {
-    while (SPIM_CAN_GetRxBufferSize()) {
-        SPIM_CAN_ReadRxData();
-    }
-    // SPIM_CAN_ClearRxBuffer();
-    
-    uint8_t toWrite = length;
-    length += 2;
-
-    while(0u == (SPIM_CAN_TX_STATUS_REG & SPIM_CAN_STS_TX_FIFO_EMPTY))
-    {
-    }
-
-    /* Put data element into the TX FIFO */
-    CY_SET_REG8(SPIM_CAN_TXDATA_PTR, CAN_CTL_READ);
-    CY_SET_REG8(SPIM_CAN_TXDATA_PTR, address);
-        
-    uint8_t read = 0;
-    uint8_t data;
-    while (read < length) {
-        if (toWrite > 0 && (SPIM_CAN_TX_STATUS_REG & SPIM_CAN_STS_TX_FIFO_NOT_FULL)) {
-            CY_SET_REG8(SPIM_CAN_TXDATA_PTR, 0);
-            --toWrite;
-        }
-        if (SPIM_CAN_RX_STATUS_REG & SPIM_CAN_STS_RX_FIFO_NOT_EMPTY) {
-            data = CY_GET_REG8(SPIM_CAN_RXDATA_PTR);
-            if (read >= 2)
-                queue_add(data);
-            ++read;
-        }
-    }
+    queue_add(message);
 }
 
 /* [] END OF FILE */
