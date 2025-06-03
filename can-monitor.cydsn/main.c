@@ -26,7 +26,7 @@ CY_ISR(ISR_USER_SW)
     Pin_LED_B_Write(1);    
 }
 
-#define QUEUE_SIZE 128
+#define QUEUE_SIZE 32
 volatile uint8_t q_first = 0;
 volatile uint8_t q_last = 0;
 can_message_t *queue_array[QUEUE_SIZE];
