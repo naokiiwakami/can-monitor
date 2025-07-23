@@ -49,3 +49,7 @@ is programmable by an ST-LINK/V2 compatible programmer.
 A KiCAD project is available in directory `kicad/` (schematic only).
 
 ![schematic](docs/can-monitor-schematic.png)
+
+## TODO
+- Add support for monitoring remote frames
+- More user commands

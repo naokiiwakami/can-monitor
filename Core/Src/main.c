@@ -65,7 +65,7 @@ void send_test_can_message()
   FDCAN_TxHeaderTypeDef TxHeader;
   uint8_t TxData[8] = {0xDE, 0xAD, 0xBE, 0xEF};
 
-  TxHeader.Identifier = 0x705;
+  TxHeader.Identifier = 0x303;
   TxHeader.IdType = FDCAN_STANDARD_ID;
   TxHeader.TxFrameType = FDCAN_DATA_FRAME;
   TxHeader.DataLength = FDCAN_DLC_BYTES_4;
@@ -284,21 +284,6 @@ static void MX_FDCAN1_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN FDCAN1_Init 2 */
-#if 0
-  // Configure standard ID filter to accept all
-  FDCAN_FilterTypeDef sFilterConfig;
-  sFilterConfig.IdType = FDCAN_STANDARD_ID;
-  sFilterConfig.FilterIndex = 0;
-  sFilterConfig.FilterType = FDCAN_FILTER_RANGE;
-  sFilterConfig.FilterConfig = FDCAN_FILTER_TO_RXFIFO0;
-  sFilterConfig.FilterID1 = 0x000;
-  sFilterConfig.FilterID2 = 0x7ff;
-
-  if (HAL_FDCAN_ConfigFilter(&hfdcan1, &sFilterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-#endif
   if (HAL_FDCAN_ConfigGlobalFilter(
         &hfdcan1, FDCAN_ACCEPT_IN_RX_FIFO0, FDCAN_ACCEPT_IN_RX_FIFO0,
         FDCAN_FILTER_REMOTE, FDCAN_FILTER_REMOTE) != HAL_OK)
