@@ -54,3 +54,4 @@ release
 
 # KiCAD
 *-backups
+*.lck

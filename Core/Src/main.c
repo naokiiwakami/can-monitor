@@ -26,12 +26,15 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-
+typedef struct _can_message {
+  FDCAN_RxHeaderTypeDef header;
+  uint8_t data[8];
+} can_message_t;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define MESSAGE_QUEUE_SIZE 32
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -46,7 +49,10 @@ FDCAN_HandleTypeDef hfdcan1;
 UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
-
+can_message_t message_queue[MESSAGE_QUEUE_SIZE];
+uint32_t q_head = 0;
+uint32_t q_tail = 0;
+uint8_t q_full = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -160,25 +166,26 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    if (HAL_FDCAN_GetRxFifoFillLevel(&hfdcan1, FDCAN_RX_FIFO0) > 0) {
-      FDCAN_RxHeaderTypeDef rx_header;
-      uint8_t rx_data[8];
-      if (HAL_FDCAN_GetRxMessage(&hfdcan1, FDCAN_RX_FIFO0, &rx_header, rx_data) != HAL_OK) {
-        Error_Handler();
-      }
-      if (rx_header.IdType == FDCAN_STANDARD_ID) {
+    if (q_head != q_tail || q_full) {
+      __disable_irq();
+      FDCAN_RxHeaderTypeDef *rx_header = &message_queue[q_tail].header;
+      uint8_t *rx_data = message_queue[q_tail].data;
+      q_tail = q_tail + 1 % MESSAGE_QUEUE_SIZE;
+      q_full = 0;
+      __enable_irq();
+      if (rx_header->IdType == FDCAN_STANDARD_ID) {
         put_string("std[");
-        put_hex((rx_header.Identifier >> 8) & 0xff);
-        put_hex(rx_header.Identifier & 0xff);
+        put_hex((rx_header->Identifier >> 8) & 0xff);
+        put_hex(rx_header->Identifier & 0xff);
       } else {
         put_string("ext[");
-        put_hex((rx_header.Identifier >> 24) & 0xff);
-        put_hex((rx_header.Identifier >> 16) & 0xff);
-        put_hex((rx_header.Identifier >> 8) & 0xff);
-        put_hex(rx_header.Identifier & 0xff);
+        put_hex((rx_header->Identifier >> 24) & 0xff);
+        put_hex((rx_header->Identifier >> 16) & 0xff);
+        put_hex((rx_header->Identifier >> 8) & 0xff);
+        put_hex(rx_header->Identifier & 0xff);
       }
       put_string(" ]:");
-      for (uint32_t i = 0; i < rx_header.DataLength; ++i) {
+      for (uint32_t i = 0; i < rx_header->DataLength; ++i) {
         put_hex(rx_data[i]);
       }
       put_string("\r\n");
@@ -394,16 +401,38 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 {
   if ((RxFifo0ITs & FDCAN_IT_RX_FIFO0_NEW_MESSAGE) != 0)
   {
-    FDCAN_RxHeaderTypeDef RxHeader;
-    uint8_t RxData[8];
-
-    if (HAL_FDCAN_GetRxMessage(hfdcan, FDCAN_RX_FIFO0, &RxHeader, RxData) != HAL_OK)
+    FDCAN_RxHeaderTypeDef dummy_header;
+    uint8_t dummy_data[8];
+    while (1)
     {
-      Error_Handler();
-    }
+      FDCAN_RxHeaderTypeDef *rx_header;
+      uint8_t *rx_data;
+      if (q_full)
+      {
+        rx_header = &dummy_header;
+        rx_data = dummy_data;
+      }
+      else
+      {
+        rx_header = &message_queue[q_head].header;
+        rx_data = message_queue[q_head].data;
+      }
 
-    // Process received data (example: blink LED, print via UART, etc.)
-    HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, 1);
+      if (HAL_FDCAN_GetRxMessage(hfdcan, FDCAN_RX_FIFO0, rx_header, rx_data) != HAL_OK)
+      {
+        if (hfdcan->ErrorCode & HAL_FDCAN_ERROR_FIFO_EMPTY)
+        {
+          // FIFO exhausted
+          break;
+        }
+        Error_Handler();
+      }
+      else if (!q_full)
+      {
+        q_head = (q_head + 1) % MESSAGE_QUEUE_SIZE;
+        q_full = q_head == q_tail;
+      }
+    }
   }
 }
 /* USER CODE END 4 */
