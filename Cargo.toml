@@ -1,8 +1,8 @@
 [package]
 edition = "2024"
-name = "embassy-stm32c0-examples"
+name = "can-monitor"
 version = "0.1.0"
-license = "MIT OR Apache-2.0"
+license = "MIT"
 publish = false
 
 [dependencies]
@@ -47,12 +47,12 @@ opt-level = "s"
 lto = true
 
 [package.metadata.embassy]
-build = [
-  { target = "thumbv6m-none-eabi", artifact-dir = "out/examples/stm32c0" },
-]
+build = [{ target = "thumbv6m-none-eabi", artifact-dir = "out" }]
 
 [features]
-# switch clock sources, HSI or HSE
-default = ["hse"]
+# choose HSI or HSE for the clock source
+default = ["hsi"]
 hse = []
 hsi = []
+# optionally enables bit rate switching in CAN tx
+bit-rate-switching = []

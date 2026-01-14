@@ -8,19 +8,24 @@ use embassy_stm32::can::{self, Can, frame::Frame};
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::mode;
 use embassy_stm32::peripherals;
+#[cfg(feature = "hsi")]
+use embassy_stm32::rcc::{Hsi, HsiKerDiv, HsiSysDiv};
 use embassy_stm32::usart::{self, Uart};
 use embassy_stm32::{Peripherals, bind_interrupts};
+#[cfg(feature = "hse")]
+use embassy_stm32::{
+    rcc::{Hse, HseMode, Sysclk},
+    time::Hertz,
+};
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel};
 use embedded_can::Id;
 use heapless::String;
 use {defmt_rtt as _, panic_probe as _};
-
-#[cfg(feature = "hse")]
-use embassy_stm32::rcc::{Hse, HseMode, Sysclk};
-use embassy_stm32::time::Hertz;
-
-#[cfg(feature = "hsi")]
-use embassy_stm32::rcc::{Hsi, HsiKerDiv, HsiSysDiv};
+#[cfg(feature = "bit-rate-switching")]
+use {
+    embassy_stm32::can::frame::{FdFrame, Header},
+    embedded_can::StandardId,
+};
 
 static CHANNEL: Channel<ThreadModeRawMutex, Frame, 8> = Channel::new();
 
@@ -111,6 +116,10 @@ fn setup_peripherals(
     let can = {
         let mut can_config = can::CanConfigurator::new(p.FDCAN1, p.PB5, p.PB6, CanIrqs);
         can_config.set_bitrate(1_000_000);
+
+        #[cfg(feature = "bit-rate-switching")]
+        can_config.set_fd_data_bitrate(2_000_000, true);
+
         can_config.into_normal_mode()
     };
 
@@ -126,6 +135,33 @@ async fn main(_spawner: Spawner) {
     let (mut can, mut _can_stb, usart) = setup_peripherals(p);
 
     _spawner.spawn(message_consumer(usart).unwrap());
+
+    {
+        let frame = can::frame::FdFrame::new_standard(
+            0x7df,
+            &[
+                0b00010101, 0b00000101, 0b01010101, 0b00010001, 0x00000000, 0b00000000, 0x00000000,
+                0x00000001,
+            ],
+        )
+        .unwrap();
+        _ = can.write_fd(&frame).await;
+    }
+
+    #[cfg(feature = "bit-rate-switching")]
+    {
+        let data: [u8; 8] = [0x15, 0x05, 0x55, 0x11, 0x00, 0x00, 0x00, 0x01];
+
+        let header = Header::new_fd(
+            Id::Standard(StandardId::new(0x7DF).unwrap()),
+            8,
+            false,
+            true,
+        );
+
+        let frame = FdFrame::new(header, &data).unwrap();
+        _ = can.write_fd(&frame).await;
+    }
 
     let sender = CHANNEL.sender();
     loop {
