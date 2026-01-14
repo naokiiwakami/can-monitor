@@ -7,7 +7,7 @@ use embassy_executor::Spawner;
 use embassy_stm32::can::{self, Can, frame::Frame};
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::mode;
-use embassy_stm32::peripherals::{self /*, **/};
+use embassy_stm32::peripherals;
 use embassy_stm32::usart::{self, Uart};
 use embassy_stm32::{Peripherals, bind_interrupts};
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel};
