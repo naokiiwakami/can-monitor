@@ -93,6 +93,7 @@ dependencies = [
  "defmt 1.0.1",
  "defmt-rtt",
  "embassy-executor",
+ "embassy-futures 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "embassy-stm32",
  "embassy-sync",
  "embassy-time",
@@ -276,7 +277,7 @@ name = "embassy-embedded-hal"
 version = "0.5.0"
 dependencies = [
  "defmt 1.0.1",
- "embassy-futures",
+ "embassy-futures 0.1.2",
  "embassy-hal-internal",
  "embassy-sync",
  "embassy-time",
@@ -320,6 +321,12 @@ name = "embassy-futures"
 version = "0.1.2"
 
 [[package]]
+name = "embassy-futures"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc2d050bdc5c21e0862a89256ed8029ae6c290a93aecefc73084b3002cdebb01"
+
+[[package]]
 name = "embassy-hal-internal"
 version = "0.4.0"
 dependencies = [
@@ -352,7 +359,7 @@ dependencies = [
  "defmt 1.0.1",
  "document-features",
  "embassy-embedded-hal",
- "embassy-futures",
+ "embassy-futures 0.1.2",
  "embassy-hal-internal",
  "embassy-net-driver",
  "embassy-sync",

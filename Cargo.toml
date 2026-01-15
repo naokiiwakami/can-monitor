@@ -40,6 +40,7 @@ panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 heapless = { version = "0.8", default-features = false }
 chrono = { version = "^0.4", default-features = false }
 embedded-can = "0.4"
+embassy-futures = "0.1.2"
 
 [profile.release]
 debug = 2
@@ -51,7 +52,7 @@ build = [{ target = "thumbv6m-none-eabi", artifact-dir = "out" }]
 
 [features]
 # choose HSI or HSE for the clock source
-default = ["hse", "bit-rate-switching"]
+default = ["hse"]
 hse = []
 hsi = []
 # optionally enables bit rate switching in CAN tx
