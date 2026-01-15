@@ -51,7 +51,7 @@ build = [{ target = "thumbv6m-none-eabi", artifact-dir = "out" }]
 
 [features]
 # choose HSI or HSE for the clock source
-default = ["hsi"]
+default = ["hse", "bit-rate-switching"]
 hse = []
 hsi = []
 # optionally enables bit rate switching in CAN tx

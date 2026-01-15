@@ -5,7 +5,7 @@ use core::fmt::Write;
 use defmt::error;
 use embassy_executor::Spawner;
 use embassy_stm32::can::{self, Can, frame::Frame};
-use embassy_stm32::gpio::{Level, Output, Speed};
+use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::mode;
 use embassy_stm32::peripherals;
 #[cfg(feature = "hsi")]
@@ -94,7 +94,13 @@ fn init() -> Peripherals {
 
 fn setup_peripherals(
     p: Peripherals,
-) -> (Can<'static>, Output<'static>, Uart<'static, mode::Async>) {
+) -> (
+    Can<'static>,
+    Output<'static>,
+    Uart<'static, mode::Async>,
+    Output<'static>,
+    Input<'static>,
+) {
     let usart = Uart::new(
         p.USART1,
         p.PA8,
@@ -108,6 +114,8 @@ fn setup_peripherals(
 
     // can standby controller pin
     let mut can_stb = Output::new(p.PB4, Level::High, Speed::Low);
+    let mut debug_out = Output::new(p.PB1, Level::Low, Speed::Low);
+    let rate_select = Input::new(p.PB0, Pull::Up);
 
     // disable the CAN tranceiver
     can_stb.set_high();
@@ -118,7 +126,14 @@ fn setup_peripherals(
         can_config.set_bitrate(1_000_000);
 
         #[cfg(feature = "bit-rate-switching")]
-        can_config.set_fd_data_bitrate(2_000_000, true);
+        {
+            if rate_select.is_high() {
+                can_config.set_fd_data_bitrate(4_000_000, true);
+            } else {
+                debug_out.set_high();
+                can_config.set_fd_data_bitrate(6_000_000, true);
+            }
+        }
 
         can_config.into_normal_mode()
     };
@@ -126,35 +141,37 @@ fn setup_peripherals(
     // enable the CAN tranceiver
     can_stb.set_low();
 
-    (can, can_stb, usart)
+    (can, can_stb, usart, debug_out, rate_select)
 }
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = init();
-    let (mut can, mut _can_stb, usart) = setup_peripherals(p);
+    let (mut can, mut _can_stb, usart, mut _debug_out, _rate_select) = setup_peripherals(p);
 
     _spawner.spawn(message_consumer(usart).unwrap());
 
+    /*
     {
         let frame = can::frame::FdFrame::new_standard(
-            0x7df,
-            &[
-                0b00010101, 0b00000101, 0b01010101, 0b00010001, 0x00000000, 0b00000000, 0x00000000,
-                0x00000001,
-            ],
+            0x170,
+            &[0x41, 0x26],
+            // &[
+            //     0b00010101, 0b00000101, 0b01010101, 0b00010001, 0x00000000, 0b00000000, 0x00000000,
+            //     0x00000001,
+            // ],
         )
         .unwrap();
         _ = can.write_fd(&frame).await;
     }
+    */
 
-    #[cfg(feature = "bit-rate-switching")]
     {
-        let data: [u8; 8] = [0x15, 0x05, 0x55, 0x11, 0x00, 0x00, 0x00, 0x01];
-
+        // let data: [u8; 8] = [0x15, 0x05, 0x55, 0x11, 0x00, 0x00, 0x00, 0x01];
+        let data: [u8; 2] = [0x41, 0x26];
         let header = Header::new_fd(
-            Id::Standard(StandardId::new(0x7DF).unwrap()),
-            8,
+            Id::Standard(StandardId::new(0x170).unwrap()),
+            data.len() as u8,
             false,
             true,
         );
