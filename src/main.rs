@@ -47,9 +47,19 @@ async fn display_frame(
     usart: &mut Uart<'static, mode::Async>,
 ) -> Result<(), usart::Error> {
     let mut log_message: String<128> = String::new();
+    let fd = if rx_frame.header().fdcan() { "f" } else { "c" };
+    let brs = if rx_frame.header().bit_rate_switching() {
+        "b"
+    } else {
+        "-"
+    };
     match rx_frame.id() {
-        Id::Standard(id) => write!(log_message, "std [ {:03x} ]:", id.as_raw()).unwrap(),
-        Id::Extended(id) => write!(log_message, "ext [ {:08x} ]:", id.as_raw()).unwrap(),
+        Id::Standard(id) => {
+            write!(log_message, "({}{}) std [ {:03x} ]:", fd, brs, id.as_raw()).unwrap()
+        }
+        Id::Extended(id) => {
+            write!(log_message, "({}{}) ext [ {:08x} ]:", fd, brs, id.as_raw()).unwrap()
+        }
     };
     for &value in &rx_frame.data()[0..rx_frame.header().len() as usize] {
         write!(log_message, " {:02x}", value).unwrap();
@@ -73,15 +83,7 @@ async fn process_command(
 
         "tx" => {
             // usart.write(b"pong\r\n").await.unwrap();
-            let frame = can::frame::FdFrame::new_standard(
-                0x170,
-                &[0x41, 0x26],
-                // &[
-                //     0b00010101, 0b00000101, 0b01010101, 0b00010001, 0x00000000, 0b00000000, 0x00000000,
-                //     0x00000001,
-                // ],
-            )
-            .unwrap();
+            let frame = can::frame::FdFrame::new_standard(0x6ad, &[0x41, 0x26]).unwrap();
             tx_sender.send(frame).await;
         }
 
@@ -220,36 +222,6 @@ async fn main(_spawner: Spawner) {
 
     _spawner.spawn(message_consumer(usart).unwrap());
 
-    /*
-    {
-        let frame = can::frame::FdFrame::new_standard(
-            0x170,
-            &[0x41, 0x26],
-            // &[
-            //     0b00010101, 0b00000101, 0b01010101, 0b00010001, 0x00000000, 0b00000000, 0x00000000,
-            //     0x00000001,
-            // ],
-        )
-        .unwrap();
-        _ = can.write_fd(&frame).await;
-    }
-    */
-
-    /*
-    {
-        // let data: [u8; 8] = [0x15, 0x05, 0x55, 0x11, 0x00, 0x00, 0x00, 0x01];
-        let data: [u8; 2] = [0x41, 0x26];
-        let header = Header::new_fd(
-            Id::Standard(StandardId::new(0x170).unwrap()),
-            data.len() as u8,
-            false,
-            true,
-        );
-
-        let frame = FdFrame::new(header, &data).unwrap();
-        _ = can.write_fd(&frame).await;
-    }
-    */
     let rx_sender = RX_CHANNEL.sender();
     let tx_receiver = TX_CHANNEL.receiver();
     loop {

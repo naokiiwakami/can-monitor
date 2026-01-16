@@ -30,11 +30,19 @@ Then the module starts monitoring the CAN bus. Following is an example output:
 ******************************
   CAN Bus Monitor
 ******************************
-std [ 700 ]: 03 01
-std [ 701 ]: 01
-ext [ 1851f42d ]: 01
-std [ 700 ]: 02 18 51 f4 2d 01
+
+(fb) std [ 700 ]: 03 02
+(c-) ext [ 1851f42d ]: 01
+(f-) std [ 700 ]: 01
 ```
+
+where the flag f/c indicates whether the frame was FD or classic.
+The flag b/- indicates the message was sent using Bit Rate Switching.
+
+If you type "tx" in the terminal, the monitor sends a test classic standard
+frame of identifier 0x6ad with 2-byte data [0x41, 0x26]. There is another command
+which is "txfd" that sends an FD standard frame with BRS. Type "help" for more
+commands.
 
 ## Firmware
 
