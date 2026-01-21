@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 # Change stm32c031c6 to your chip name, if necessary.
-embassy-stm32 = { version = "0.5.0", path = "../embassy/embassy-stm32", features = [
+embassy-stm32 = { path = "../embassy/embassy-stm32", features = [
   "defmt",
   "time-driver-any",
   "stm32c092kc",
@@ -16,15 +16,13 @@ embassy-stm32 = { version = "0.5.0", path = "../embassy/embassy-stm32", features
   "exti",
   "chrono",
 ] }
-embassy-sync = { version = "0.7.2", path = "../embassy/embassy-sync", features = [
-  "defmt",
-] }
-embassy-executor = { version = "0.9.0", path = "../embassy/embassy-executor", features = [
+embassy-sync = { path = "../embassy/embassy-sync", features = ["defmt"] }
+embassy-executor = { path = "../embassy/embassy-executor", features = [
   "arch-cortex-m",
   "executor-thread",
   "defmt",
 ] }
-embassy-time = { version = "0.5.0", path = "../embassy/embassy-time", features = [
+embassy-time = { path = "../embassy/embassy-time", features = [
   "defmt",
   "defmt-timestamp-uptime",
   "tick-hz-32_768",
@@ -52,7 +50,7 @@ build = [{ target = "thumbv6m-none-eabi", artifact-dir = "out" }]
 
 [features]
 # choose HSI or HSE for the clock source
-default = ["hse"]
+default = ["hsi"]
 hse = []
 hsi = []
 # optionally enables bit rate switching in CAN tx

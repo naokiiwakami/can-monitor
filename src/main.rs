@@ -2,7 +2,7 @@
 #![no_main]
 
 use core::fmt::Write;
-use defmt::error;
+use defmt::{debug, error};
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_stm32::can::{
@@ -90,7 +90,7 @@ async fn process_command(
         "txfd" => {
             let data: [u8; 7] = [0x8a, 0xd1, 0x0a, 0xc7, 0x1b, 0x17, 0xee];
             let header = Header::new_fd(
-                Id::Standard(StandardId::new(0x7df).unwrap()),
+                Id::Standard(StandardId::new(0x170).unwrap()),
                 data.len() as u8,
                 false,
                 true,
@@ -155,7 +155,7 @@ fn init() -> Peripherals {
     {
         // Set system clock source to HSE with 24 MHz crystal
         config.rcc.hse = Some(Hse {
-            freq: Hertz::mhz(24),
+            freq: Hertz::mhz(48),
             mode: HseMode::Oscillator,
         });
         config.rcc.sys = Sysclk::HSE;
@@ -195,21 +195,28 @@ fn setup_peripherals(
 
     // can standby controller pin
     let mut can_stb = Output::new(p.PB4, Level::High, Speed::Low);
-    let mut debug_out = Output::new(p.PB1, Level::Low, Speed::Low);
+    let debug_out = Output::new(p.PB1, Level::Low, Speed::Low);
     let rate_select = Input::new(p.PB0, Pull::Up);
 
-    // disable the CAN tranceiver
+    // disable the CAN transceiver
     can_stb.set_high();
 
     // start the CAN controller
     let can = {
         let mut can_config = can::CanConfigurator::new(p.FDCAN1, p.PB5, p.PB6, CanIrqs);
-        can_config.set_bitrate(1_000_000);
-        can_config.set_fd_data_bitrate(4_000_000, true);
+        let nominal_bitrate = 1_000_000;
+        let data_bitrate = 4_000_000;
+        debug!(
+            "Starting CAN FD with nominal bitrate {} mbps, data bitrate {} mbps",
+            nominal_bitrate / 1_000_000,
+            data_bitrate / 1_000_000
+        );
+        can_config.set_bitrate(nominal_bitrate);
+        can_config.set_fd_data_bitrate(data_bitrate, true);
         can_config.into_normal_mode()
     };
 
-    // enable the CAN tranceiver
+    // enable the CAN transceiver
     can_stb.set_low();
 
     (can, can_stb, usart, debug_out, rate_select)
@@ -225,6 +232,10 @@ async fn main(_spawner: Spawner) {
     let rx_sender = RX_CHANNEL.sender();
     let tx_receiver = TX_CHANNEL.receiver();
     loop {
+        /*
+        _debug_out.toggle();
+        Timer::after_millis(500).await;
+        */
         match select(can.read(), tx_receiver.receive()).await {
             Either::First(read_result) => match read_result {
                 Ok(envelope) => {

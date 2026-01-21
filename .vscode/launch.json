@@ -11,7 +11,7 @@
             "chip": "STM32C092CC",
             "coreConfigs": [
                 {
-                    "programBinary": "target/thumbv6m-none-eabi/debug/blinky"
+                    "programBinary": "target/thumbv6m-none-eabi/debug/can-monitor"
                 }
             ]
         }
