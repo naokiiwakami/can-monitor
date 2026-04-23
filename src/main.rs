@@ -40,6 +40,9 @@ bind_interrupts!(struct CanIrqs {
 
 bind_interrupts!(struct UsartIrqs {
     USART1 => usart::InterruptHandler<peripherals::USART1>;
+    DMA1_CHANNEL2_3 =>
+        embassy_stm32::dma::InterruptHandler<peripherals::DMA1_CH2>,
+        embassy_stm32::dma::InterruptHandler<peripherals::DMA1_CH3>;
 });
 
 async fn display_frame(
@@ -158,15 +161,15 @@ fn init() -> Peripherals {
             freq: Hertz::mhz(48),
             mode: HseMode::Oscillator,
         });
-        config.rcc.sys = Sysclk::HSE;
+        config.rcc.sys = Sysclk::Hse;
     }
 
     #[cfg(feature = "hsi")]
     {
         // set system clock source to HSI with 48 MHz RC oscillation
         config.rcc.hsi = Some(Hsi {
-            sys_div: HsiSysDiv::DIV1,
-            ker_div: HsiKerDiv::DIV1,
+            sys_div: HsiSysDiv::Div1,
+            ker_div: HsiKerDiv::Div1,
         });
     }
 
@@ -186,9 +189,9 @@ fn setup_peripherals(
         p.USART1,
         p.PA8,
         p.PA9,
-        UsartIrqs,
         p.DMA1_CH2,
         p.DMA1_CH3,
+        UsartIrqs,
         usart::Config::default(),
     )
     .unwrap();
