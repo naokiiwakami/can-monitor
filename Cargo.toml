@@ -6,7 +6,6 @@ license = "MIT"
 publish = false
 
 [dependencies]
-# Change stm32c031c6 to your chip name, if necessary.
 embassy-stm32 = { git = "https://github.com/embassy-rs/embassy.git", rev = "26ad6ec71de3d55e5cbc04a72d7174185f3e86ab", features = [
   "defmt",
   "time-driver-any",
