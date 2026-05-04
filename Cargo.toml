@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 # Change stm32c031c6 to your chip name, if necessary.
-embassy-stm32 = { path = "../embassy/embassy-stm32", features = [
+embassy-stm32 = { git = "https://github.com/embassy-rs/embassy.git", rev = "26ad6ec71de3d55e5cbc04a72d7174185f3e86ab", features = [
   "defmt",
   "time-driver-any",
   "stm32c092kc",
@@ -16,13 +16,15 @@ embassy-stm32 = { path = "../embassy/embassy-stm32", features = [
   "exti",
   "chrono",
 ] }
-embassy-sync = { path = "../embassy/embassy-sync", features = ["defmt"] }
-embassy-executor = { path = "../embassy/embassy-executor", features = [
-  "arch-cortex-m",
+embassy-sync = { git = "https://github.com/embassy-rs/embassy.git", rev = "26ad6ec71de3d55e5cbc04a72d7174185f3e86ab", features = [
+  "defmt",
+] }
+embassy-executor = { git = "https://github.com/embassy-rs/embassy.git", rev = "26ad6ec71de3d55e5cbc04a72d7174185f3e86ab", features = [
+  "platform-cortex-m",
   "executor-thread",
   "defmt",
 ] }
-embassy-time = { path = "../embassy/embassy-time", features = [
+embassy-time = { git = "https://github.com/embassy-rs/embassy.git", rev = "26ad6ec71de3d55e5cbc04a72d7174185f3e86ab", features = [
   "defmt",
   "defmt-timestamp-uptime",
   "tick-hz-32_768",
@@ -38,7 +40,7 @@ panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 heapless = { version = "0.8", default-features = false }
 chrono = { version = "^0.4", default-features = false }
 embedded-can = "0.4"
-embassy-futures = "0.1.2"
+embassy-futures = { git = "https://github.com/embassy-rs/embassy.git", rev = "26ad6ec71de3d55e5cbc04a72d7174185f3e86ab" }
 
 [profile.release]
 debug = 2
@@ -50,7 +52,7 @@ build = [{ target = "thumbv6m-none-eabi", artifact-dir = "out" }]
 
 [features]
 # choose HSI or HSE for the clock source
-default = ["hsi"]
+default = ["hse"]
 hse = []
 hsi = []
 # optionally enables bit rate switching in CAN tx

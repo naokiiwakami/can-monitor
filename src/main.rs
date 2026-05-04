@@ -2,13 +2,14 @@
 #![no_main]
 
 use core::fmt::Write;
-use defmt::{debug, error};
+use defmt::error;
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_stm32::can::{
     self, Can,
-    frame::{Frame, Header},
+    frame::{Envelope, Header},
 };
+use embassy_stm32::dma;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::mode;
 use embassy_stm32::peripherals;
@@ -25,12 +26,13 @@ use embassy_sync::{
     blocking_mutex::raw::ThreadModeRawMutex,
     channel::{Channel, Sender},
 };
+use embassy_time::Instant;
 use embedded_can::Id;
 use heapless::String;
 use {defmt_rtt as _, panic_probe as _};
 use {embassy_stm32::can::frame::FdFrame, embedded_can::StandardId};
 
-static RX_CHANNEL: Channel<ThreadModeRawMutex, Frame, 8> = Channel::new();
+static RX_CHANNEL: Channel<ThreadModeRawMutex, Envelope, 8> = Channel::new();
 static TX_CHANNEL: Channel<ThreadModeRawMutex, FdFrame, 2> = Channel::new();
 
 bind_interrupts!(struct CanIrqs {
@@ -40,31 +42,63 @@ bind_interrupts!(struct CanIrqs {
 
 bind_interrupts!(struct UsartIrqs {
     USART1 => usart::InterruptHandler<peripherals::USART1>;
+    DMA1_CHANNEL2_3 => dma::InterruptHandler<peripherals::DMA1_CH2>, dma::InterruptHandler<peripherals::DMA1_CH3>;
 });
 
 async fn display_frame(
-    rx_frame: Frame,
+    envelope: &Envelope,
+    last: &Instant,
     usart: &mut Uart<'static, mode::Async>,
 ) -> Result<(), usart::Error> {
     let mut log_message: String<128> = String::new();
+    let interval = envelope.ts.duration_since(*last).as_micros();
+    if interval > 5_000_000 {
+        write!(log_message, "\r\n").unwrap();
+    }
+    let rx_frame = envelope.frame;
     let fd = if rx_frame.header().fdcan() { "f" } else { "c" };
     let brs = if rx_frame.header().bit_rate_switching() {
         "b"
-    } else {
+    } else if rx_frame.header().fdcan() {
         "-"
+    } else {
+        " "
     };
+    let timestamp = envelope.ts.as_micros();
+    let ts_sec = timestamp / 1_000_000;
+    let ts_msec = timestamp % 1_000_000 / 1000;
+    let ts_usec = timestamp % 1000;
     match rx_frame.id() {
-        Id::Standard(id) => {
-            write!(log_message, "({}{}) std [ {:03x} ]:", fd, brs, id.as_raw()).unwrap()
-        }
-        Id::Extended(id) => {
-            write!(log_message, "({}{}) ext [ {:08x} ]:", fd, brs, id.as_raw()).unwrap()
-        }
+        Id::Standard(id) => write!(
+            log_message,
+            "{}.{:03}.{:03} <{}{}> std [ {:03x} ]:",
+            ts_sec,
+            ts_msec,
+            ts_usec,
+            fd,
+            brs,
+            id.as_raw(),
+        )
+        .unwrap(),
+        Id::Extended(id) => write!(
+            log_message,
+            "{}.{:03}.{:03} <{}{}> ext [ {:08x} ]:",
+            ts_sec,
+            ts_msec,
+            ts_usec,
+            fd,
+            brs,
+            id.as_raw(),
+        )
+        .unwrap(),
     };
     for &value in &rx_frame.data()[0..rx_frame.header().len() as usize] {
         write!(log_message, " {:02x}", value).unwrap();
     }
-    write!(log_message, "\r\n").unwrap();
+    for _ in rx_frame.header().len() as usize..8 {
+        write!(log_message, "   ").unwrap();
+    }
+    write!(log_message, "  ({})\r\n", interval).unwrap();
     return usart.write(log_message.as_bytes()).await;
 }
 
@@ -89,8 +123,9 @@ async fn process_command(
 
         "txfd" => {
             let data: [u8; 7] = [0x8a, 0xd1, 0x0a, 0xc7, 0x1b, 0x17, 0xee];
+            // let data: [u8; 2] = [0x41, 0x26];
             let header = Header::new_fd(
-                Id::Standard(StandardId::new(0x170).unwrap()),
+                Id::Standard(StandardId::new(0x7df).unwrap()),
                 data.len() as u8,
                 false,
                 true,
@@ -110,20 +145,11 @@ async fn process_command(
 
 #[embassy_executor::task]
 async fn message_consumer(mut usart: Uart<'static, mode::Async>) {
-    usart
-        .write(b"\r\n******************************\r\n")
-        .await
-        .unwrap();
-    usart.write(b"  CAN Bus Monitor\r\n").await.unwrap();
-    usart
-        .write(b"******************************\r\n\r\n")
-        .await
-        .unwrap();
-
     let rx_receiver = RX_CHANNEL.receiver();
     let mut tx_sender = TX_CHANNEL.sender();
     let mut buf = [0u8; 1];
     let mut command_line: String<128> = String::new();
+    let mut last = Instant::now();
     loop {
         match select(usart.read(&mut buf), rx_receiver.receive()).await {
             Either::First(out) => {
@@ -142,7 +168,10 @@ async fn message_consumer(mut usart: Uart<'static, mode::Async>) {
                     };
                 }
             }
-            Either::Second(rx_frame) => display_frame(rx_frame, &mut usart).await.unwrap(),
+            Either::Second(envelope) => {
+                display_frame(&envelope, &last, &mut usart).await.unwrap();
+                last = envelope.ts;
+            }
         };
     }
 }
@@ -158,44 +187,56 @@ fn init() -> Peripherals {
             freq: Hertz::mhz(48),
             mode: HseMode::Oscillator,
         });
-        config.rcc.sys = Sysclk::HSE;
+        config.rcc.sys = Sysclk::Hse;
     }
 
     #[cfg(feature = "hsi")]
     {
         // set system clock source to HSI with 48 MHz RC oscillation
         config.rcc.hsi = Some(Hsi {
-            sys_div: HsiSysDiv::DIV1,
-            ker_div: HsiKerDiv::DIV1,
+            sys_div: HsiSysDiv::Div1,
+            ker_div: HsiKerDiv::Div1,
         });
     }
 
     embassy_stm32::init(config)
 }
 
-fn setup_peripherals(
+async fn setup_peripherals(
     p: Peripherals,
 ) -> (
     Can<'static>,
     Output<'static>,
     Uart<'static, mode::Async>,
     Output<'static>,
+    Output<'static>,
     Input<'static>,
 ) {
-    let usart = Uart::new(
+    let mut usart = Uart::new(
         p.USART1,
         p.PA8,
         p.PA9,
-        UsartIrqs,
         p.DMA1_CH2,
         p.DMA1_CH3,
+        UsartIrqs,
         usart::Config::default(),
     )
     .unwrap();
 
+    usart
+        .write(b"\r\n******************************\r\n")
+        .await
+        .unwrap();
+    usart.write(b"  CAN Bus Monitor\r\n").await.unwrap();
+    usart
+        .write(b"******************************\r\n")
+        .await
+        .unwrap();
+
     // can standby controller pin
     let mut can_stb = Output::new(p.PB4, Level::High, Speed::Low);
-    let debug_out = Output::new(p.PB1, Level::Low, Speed::Low);
+    let a3_ind_red_out = Output::new(p.PB1, Level::Low, Speed::Low);
+    let a3_ind_blue_out = Output::new(p.PB2, Level::Low, Speed::Low);
     let rate_select = Input::new(p.PB0, Pull::Up);
 
     // disable the CAN transceiver
@@ -206,11 +247,15 @@ fn setup_peripherals(
         let mut can_config = can::CanConfigurator::new(p.FDCAN1, p.PB5, p.PB6, CanIrqs);
         let nominal_bitrate = 1_000_000;
         let data_bitrate = 4_000_000;
-        debug!(
-            "Starting CAN FD with nominal bitrate {} mbps, data bitrate {} mbps",
+        let mut message: String<128> = String::new();
+        write!(
+            message,
+            "\r\nNominal bitrate : {} Mbps\r\nData bitrate    : {} Mbps\r\n\r\n",
             nominal_bitrate / 1_000_000,
             data_bitrate / 1_000_000
-        );
+        )
+        .unwrap();
+        usart.write(message.as_bytes()).await.unwrap();
         can_config.set_bitrate(nominal_bitrate);
         can_config.set_fd_data_bitrate(data_bitrate, true);
         can_config.into_normal_mode()
@@ -219,27 +264,35 @@ fn setup_peripherals(
     // enable the CAN transceiver
     can_stb.set_low();
 
-    (can, can_stb, usart, debug_out, rate_select)
+    usart
+        .write(b"******************************\r\n")
+        .await
+        .unwrap();
+    (
+        can,
+        can_stb,
+        usart,
+        a3_ind_red_out,
+        a3_ind_blue_out,
+        rate_select,
+    )
 }
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = init();
-    let (mut can, mut _can_stb, usart, mut _debug_out, _rate_select) = setup_peripherals(p);
+    let (mut can, mut _can_stb, usart, mut _a3_ind_red, mut _a3_ind_blue, _rate_select) =
+        setup_peripherals(p).await;
 
     _spawner.spawn(message_consumer(usart).unwrap());
 
     let rx_sender = RX_CHANNEL.sender();
     let tx_receiver = TX_CHANNEL.receiver();
     loop {
-        /*
-        _debug_out.toggle();
-        Timer::after_millis(500).await;
-        */
         match select(can.read(), tx_receiver.receive()).await {
             Either::First(read_result) => match read_result {
                 Ok(envelope) => {
-                    rx_sender.send(envelope.frame).await;
+                    rx_sender.send(envelope).await;
                 }
                 Err(err) => {
                     error!("Error in frame: {:?}", err);
